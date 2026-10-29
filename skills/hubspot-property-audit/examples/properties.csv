@@ -1,0 +1,6 @@
+name,label,group,type,fieldType,description,options
+lifecyclestage,Lifecycle Stage,Contact Information,string,select,"Stage in the funnel",Lead;MQL;SQL;Customer
+customer_stage,Customer Stage,Contact Information,string,select,,lead;mql;sql;customer
+hs_lead_status,Lead Status,Contact Information,string,select,"Sales status",
+favorite_color,Favorite Color,Marketing,string,select,,Red;Blue
+favorite_colour,Favorite Color,Marketing,string,select,"UK spelling",Red; Blue

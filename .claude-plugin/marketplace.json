@@ -26,7 +26,8 @@
         "./skills/invoice-chaser",
         "./skills/qbr-deck-outline",
         "./skills/job-post-to-icp",
-        "./skills/zapier-to-n8n-migration"
+        "./skills/zapier-to-n8n-migration",
+        "./skills/hubspot-property-audit"
       ]
     }
   ]
