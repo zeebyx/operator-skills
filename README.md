@@ -22,6 +22,7 @@ Each skill is a folder with a `SKILL.md` that teaches Claude (or any agent that 
 | [qbr-deck-outline](skills/qbr-deck-outline) | Turns account metrics and notes into a quarterly business review outline | No |
 | [job-post-to-icp](skills/job-post-to-icp) | Pulls buying signals from a job post and scores the company against your ICP | No |
 | [zapier-to-n8n-migration](skills/zapier-to-n8n-migration) | Plans a Zapier to n8n migration: node mapping, credentials, risks and order | No |
+| [pipeline-hygiene](skills/pipeline-hygiene) | Flags stale, incomplete or stuck deals in a CRM export and values each flag | Yes |
 
 ## Install
 

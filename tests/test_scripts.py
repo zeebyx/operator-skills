@@ -159,6 +159,110 @@ class CleanLeadsTests(unittest.TestCase):
         self.assertEqual(json.loads(rep.read_text())["invalid_email"], 2)
 
 
+PIPELINE = ROOT / "skills" / "pipeline-hygiene" / "scripts" / "flag_deals.py"
+
+
+class PipelineHygieneTests(unittest.TestCase):
+    HEADER = "deal_id,name,stage,amount,close_date,last_activity,next_step,stage_entered\n"
+    TODAY = "2026-10-29"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write(self, text: str, name: str = "deals.csv") -> Path:
+        p = self.dir / name
+        p.write_text(self.HEADER + text, encoding="utf-8")
+        return p
+
+    def run_script(self, src: Path, *extra):
+        out = self.dir / "out.csv"
+        report = self.dir / "report.json"
+        proc = run(PIPELINE, str(src), "--out", str(out), "--report", str(report),
+                   "--today", self.TODAY, *extra)
+        return proc, out, report
+
+    def rows(self, path: Path) -> list[dict]:
+        with open(path, newline="", encoding="utf-8") as f:
+            return list(csv.DictReader(f))
+
+    def test_flags_each_condition_once(self):
+        src = self.write(
+            "1,Clean deal,Proposal,1000,2026-12-01,2026-10-28,Legal review call,2026-10-10\n"
+            "2,Stale deal,Proposal,2000,2026-12-02,2026-08-01,Send proposal,2026-10-20\n"
+            "3,No close date,Discovery,3000,,2026-10-27,Send proposal,2026-10-20\n"
+            "4,No next step,Discovery,4000,2026-12-04,2026-10-27,Follow up,2026-10-20\n"
+            "5,Stuck deal,Negotiation,5000,2026-12-05,2026-10-27,Legal review call,2026-06-01\n"
+        )
+        proc, out, report = self.run_script(src)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        data = json.loads(report.read_text())
+        self.assertEqual(data["deals"], 5)
+        self.assertEqual(data["by_flag"]["stale"]["deals"], 1)
+        self.assertEqual(data["by_flag"]["missing_close_date"]["deals"], 1)
+        self.assertEqual(data["by_flag"]["missing_next_step"]["deals"], 1)
+        self.assertEqual(data["by_flag"]["stuck"]["deals"], 1)
+        self.assertEqual(data["flagged"], 4)
+        flagged = {r["name"]: r["flags"] for r in self.rows(out)}
+        self.assertEqual(flagged["Clean deal"], "")
+        self.assertEqual(flagged["Stale deal"], "stale")
+        self.assertEqual(flagged["No close date"], "missing_close_date")
+        self.assertEqual(flagged["No next step"], "missing_next_step")
+        self.assertEqual(flagged["Stuck deal"], "stuck")
+
+    def test_missing_required_column_is_an_error(self):
+        src = self.dir / "noamount.csv"
+        src.write_text("deal_id,name\n1,Acme\n", encoding="utf-8")
+        proc = run(PIPELINE, str(src), "--today", self.TODAY)
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("missing required column(s)", proc.stderr)
+
+    def test_formula_cells_are_escaped(self):
+        src = self.write('1,"=HYPERLINK(""x"")",Proposal,1000,2026-12-01,2026-10-28,Call,2026-10-10\n')
+        proc, out, _ = self.run_script(src)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(self.rows(out)[0]["name"].startswith("'"), self.rows(out))
+
+    def test_formula_escape_can_be_disabled(self):
+        src = self.write('1,"=HYPERLINK(""x"")",Proposal,1000,2026-12-01,2026-10-28,Call,2026-10-10\n')
+        proc, out, _ = self.run_script(src, "--no-formula-escape")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.rows(out)[0]["name"], '=HYPERLINK("x")')
+
+    def test_unparseable_amount_is_counted(self):
+        src = self.write("1,Clean deal,Proposal,n/a,2026-12-01,2026-10-28,Call,2026-10-10\n")
+        proc, _, report = self.run_script(src)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        data = json.loads(report.read_text())
+        self.assertEqual(data["rows_with_bad_amount"], 1)
+        self.assertEqual(data["total_value"], 0)
+        self.assertIn("no parseable amount", proc.stdout)
+
+    def test_non_utf8_input_is_a_clean_error(self):
+        src = self.dir / "latin.csv"
+        src.write_bytes(("deal_id,name\n1," + "Jos\xe9" + "\n").encode("latin-1"))
+        proc = run(PIPELINE, str(src), "--today", self.TODAY)
+        self.assertEqual(proc.returncode, 2)
+        self.assertNotIn("Traceback", proc.stderr)
+
+    def test_output_paths_must_not_reuse_the_input(self):
+        src = self.write("1,Clean deal,Proposal,1000,2026-12-01,2026-10-28,Call,2026-10-10\n")
+        same_out = run(PIPELINE, str(src), "--out", str(src), "--today", self.TODAY)
+        self.assertEqual(same_out.returncode, 2)
+        same_report = run(PIPELINE, str(src), "--out", str(self.dir / "x.csv"),
+                          "--report", str(self.dir / "x.csv"), "--today", self.TODAY)
+        self.assertEqual(same_report.returncode, 2)
+
+    def test_example_export_runs(self):
+        src = ROOT / "skills" / "pipeline-hygiene" / "examples" / "deals.csv"
+        proc, _, report = self.run_script(src)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(report.read_text())["deals"], 4)
+
+
 class LintWorkflowTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
